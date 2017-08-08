@@ -12,10 +12,7 @@ require("oltp_common")
 sysbench.cmdline.options.random_points =
    {"Number of random points in the IN() clause in generated SELECTs", 10}
 sysbench.cmdline.options.hot_points =
-   {"Number of keys that can be accessed for tests that " ..
-    "do point lookups. Can be much smaller than number " ..
-    "of rows in the table to create hot spots. This is " ..
-    "ignored when set to 0", 0}
+   {"If true then use the same N adjacent values for the inlist clause", false}
 
 function thread_init()
    drv = sysbench.sql.driver()
@@ -29,8 +26,8 @@ function thread_init()
       params[t] = {}
    end
 
-   if sysbench.opt.hot_points > 0 then
-      hot_gap = sysbench.opt.table_size / sysbench.opt.hot_points
+   if sysbench.opt.hot_points then
+      hot_key = sysbench.opt.table_size / 2
    end
 
    rlen = sysbench.opt.table_size / sysbench.opt.threads
@@ -64,10 +61,9 @@ end
 function event()
    local tnum = sysbench.rand.uniform(1, sysbench.opt.tables)
 
-   if sysbench.opt.hot_points > 0 then
-      -- Use one of N (N=sysbench.opt.hot_points) evenly-spaced keys
+   if sysbench.opt.hot_points then
       for i = 1, sysbench.opt.random_points do
-         params[tnum][i]:set(sysbench.rand.uniform(1, sysbench.opt.hot_points) * hot_gap)
+         params[tnum][i]:set(hot_key+i)
       end
    else
       for i = 1, sysbench.opt.random_points do
