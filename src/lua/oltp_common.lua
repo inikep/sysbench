@@ -212,6 +212,7 @@ CREATE TABLE sbtest%d(
    local c_val
    local pad_val
 
+   load_start = os.time()
    for i = 1, sysbench.opt.table_size do
 
       c_val = get_c_value()
@@ -229,15 +230,21 @@ CREATE TABLE sbtest%d(
 
       con:bulk_insert_next(query)
    end
+   load_finish = os.time()
 
    con:bulk_insert_done()
 
+   index_start = os.time()
    if sysbench.opt.create_secondary then
       print(string.format("Creating a secondary index on 'sbtest%d'...",
                           table_num))
       con:query(string.format("CREATE INDEX k_%d ON sbtest%d(k)",
                               table_num, table_num))
    end
+   index_finish = os.time()
+   print(string.format("Seconds for: %d load, %d index",
+                       load_finish - load_start,
+                       index_finish - index_start))
 end
 
 local t = sysbench.sql.type
