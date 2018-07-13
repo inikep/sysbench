@@ -47,6 +47,8 @@ sysbench.cmdline.options = {
       {"Number of SELECT ORDER BY queries per transaction", 1},
    distinct_ranges =
       {"Number of SELECT DISTINCT queries per transaction", 1},
+   count_ranges =
+      {"Number of SELECT COUNT queries per transaction", 1},
    index_updates =
       {"Number of UPDATE index queries per transaction", 1},
    non_index_updates =
@@ -264,9 +266,15 @@ local stmt_defs = {
    distinct_ranges = {
       "SELECT DISTINCT c FROM sbtest%u WHERE id BETWEEN ? AND ? ORDER BY c",
       t.INT, t.INT},
+   count_ranges = {
+      "SELECT count(c) FROM sbtest%u WHERE id BETWEEN ? AND ?",
+      t.INT, t.INT},
    index_updates = {
       "UPDATE sbtest%u SET k=k+1 WHERE id=?",
       t.INT},
+   index_updates_rl = {
+      "UPDATE sbtest%u SET k=k+1 WHERE id>=? LIMIT ?",
+      t.INT, t.INT},
    non_index_updates = {
       "UPDATE sbtest%u SET c=? WHERE id=?",
       {t.CHAR, 120}, t.INT},
@@ -338,8 +346,16 @@ function prepare_distinct_ranges()
    prepare_for_each_table("distinct_ranges")
 end
 
+function prepare_count_ranges()
+   prepare_for_each_table("count_ranges")
+end
+
 function prepare_index_updates()
    prepare_for_each_table("index_updates")
+end
+
+function prepare_index_updates_rl()
+   prepare_for_each_table("index_updates_rl")
 end
 
 function prepare_non_index_updates()
@@ -450,6 +466,10 @@ end
 
 function execute_distinct_ranges()
    execute_range("distinct_ranges")
+end
+
+function execute_count_ranges()
+   execute_range("count_ranges")
 end
 
 function execute_index_updates()
