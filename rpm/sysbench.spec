@@ -8,7 +8,7 @@ Group:         Applications/System
 Source0:       https://github.com/akopytov/%{name}/archive/%{version}/%{name}-%{version}.tar.gz
 URL:           https://github.com/akopytov/sysbench/
 
-%if 0%{?el6}
+%if 0%{?rhel} < 7
 BuildRequires: mysql-devel
 %else
 BuildRequires: mariadb-devel
@@ -19,9 +19,12 @@ BuildRequires: automake
 BuildRequires: libtool
 BuildRequires: pkgconfig
 BuildRequires: libaio-devel
-BuildRequires: vim-common
 # Use bundled cram for tests
+%if 0%{?rhel} > 7
+BuildRequires: python2
+%else
 BuildRequires: python
+%endif
 
 ExclusiveArch: %{arm} %{ix86} x86_64 %{mips} aarch64
 
@@ -75,6 +78,12 @@ make test
 
 
 %changelog
+* Fri Mar 15 2019 Alexey Bychko <abychko@gmail.com> - 1.0.16-1
+- Updated build dependencies for RHEL8-Beta.
+
+* Sat Jan  6 2018 Alexey Kopytov <akopytov@gmail.com> - 1.0.12-1
+- Remove vim-common from build dependencies.
+
 * Sun Apr 09 2017 Alexey Kopytov <akopytov@gmail.com> - 1.0.5-1
 - Add --without-gcc-arch to configure flags
 

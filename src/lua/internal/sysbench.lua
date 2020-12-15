@@ -1,4 +1,4 @@
--- Copyright (C) 2016-2017 Alexey Kopytov <akopytov@gmail.com>
+-- Copyright (C) 2016-2018 Alexey Kopytov <akopytov@gmail.com>
 
 -- This program is free software; you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -26,24 +26,27 @@ bool sb_more_events(int thread_id);
 -- Main event loop. This is a Lua version of sysbench.c:thread_run()
 -- ----------------------------------------------------------------------
 function thread_run(thread_id)
-   local success, ret
-
    while ffi.C.sb_more_events(thread_id) do
       ffi.C.sb_event_start(thread_id)
 
+      local success, ret
       repeat
-         local success, ret = pcall(event, thread_id)
+         success, ret = pcall(event, thread_id)
 
          if not success then
-            if type(ret) ~= "table" or
-               ret.errcode ~= sysbench.error.RESTART_EVENT
+            if type(ret) == "table" and
+               ret.errcode == sysbench.error.RESTART_EVENT
             then
+               if sysbench.hooks.before_restart_event then
+                  sysbench.hooks.before_restart_event(ret)
+               end
+            else
                error(ret, 2) -- propagate unknown errors
             end
          end
       until success
 
-      -- Stop the benchmark if event() returns a non-nil value
+      -- Stop the benchmark if event() returns a value other than nil or false
       if ret then
          break
       end
@@ -57,7 +60,7 @@ end
 -- ----------------------------------------------------------------------
 
 sysbench.hooks = {
-   -- sql_error = <func>,
+   -- sql_error_ignorable = <func>,
    -- report_intermediate = <func>,
    -- report_cumulative = <func>
 }
@@ -85,27 +88,37 @@ function sysbench.report_csv(stat)
    ))
 end
 
--- Report statistics in the CSV format. Add the following to your
+-- Report statistics in the JSON format. Add the following to your
 -- script to replace the default human-readable reports
 --
 -- sysbench.hooks.report_intermediate = sysbench.report_json
 function sysbench.report_json(stat)
+   if not gobj then
+      io.write('[\n')
+      -- hack to print the closing bracket when the Lua state of the reporting
+      -- thread is closed
+      gobj = newproxy(true)
+      getmetatable(gobj).__gc = function () io.write('\n]\n') end
+   else
+      io.write(',\n')
+   end
+
    local seconds = stat.time_interval
-   print(string.format([[
-{
-  "time": %4.0f,
-  "threads": %u,
-  "tps": %4.2f,
-  "qps": {
-    "total": %4.2f,
-    "reads": %4.2f,
-    "writes": %4.2f,
-    "other": %4.2f
-  },
-  "latency": %4.2f,
-  "errors": %4.2f,
-  "reconnects": %4.2f
-},]],
+   io.write(([[
+  {
+    "time": %4.0f,
+    "threads": %u,
+    "tps": %4.2f,
+    "qps": {
+      "total": %4.2f,
+      "reads": %4.2f,
+      "writes": %4.2f,
+      "other": %4.2f
+    },
+    "latency": %4.2f,
+    "errors": %4.2f,
+    "reconnects": %4.2f
+  }]]):format(
             stat.time_total,
             stat.threads_running,
             stat.events / seconds,

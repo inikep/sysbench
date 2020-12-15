@@ -1,5 +1,5 @@
 /* Copyright (C) 2004 MySQL AB
-   Copyright (C) 2004-2017 Alexey Kopytov <akopytov@gmail.com>
+   Copyright (C) 2004-2018 Alexey Kopytov <akopytov@gmail.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,10 +23,6 @@
 # include "config.h"
 #endif
 
-#ifdef _WIN32
-#include "sb_win.h"
-#endif
-
 #ifdef TIME_WITH_SYS_TIME
 # include <sys/time.h>
 # include <time.h>
@@ -44,17 +40,22 @@
 #include "sb_util.h"
 #include "ck_spinlock.h"
 
+#define NS_PER_SEC 1000000000
+#define US_PER_SEC 1000000
+#define MS_PER_SEC 1000
+#define NS_PER_MS (NS_PER_SEC / MS_PER_SEC)
+
 /* Convert nanoseconds to seconds and vice versa */
-#define NS2SEC(nsec) ((nsec)/1000000000.)
-#define SEC2NS(sec)  ((uint64_t)(sec) * 1000000000)
+#define NS2SEC(nsec) ((nsec) / (double) NS_PER_SEC)
+#define SEC2NS(sec)  ((uint64_t) (sec) * NS_PER_SEC)
 
 /* Convert nanoseconds to milliseconds and vice versa */
-#define NS2MS(nsec) ((nsec)/1000000.)
-#define MS2NS(sec)  ((sec)*1000000ULL)
+#define NS2MS(nsec) ((nsec) / (double) NS_PER_MS)
+#define MS2NS(sec)  ((sec) * (uint64_t) NS_PER_MS)
 
 /* Convert milliseconds to seconds and vice versa */
-#define MS2SEC(msec) ((msec)/1000.)
-#define SEC2MS(sec) ((sec)*1000)
+#define MS2SEC(msec) ((msec) / (double) MS_PER_SEC)
+#define SEC2MS(sec) ((sec) * MS_PER_SEC)
 
 /* Difference between two 'timespec' values in nanoseconds */
 #define TIMESPEC_DIFF(a,b) (SEC2NS(a.tv_sec - b.tv_sec) + \
@@ -94,6 +95,12 @@ typedef struct
                             sizeof(ck_spinlock_t))];
 } sb_timer_t;
 
+
+static inline int sb_nanosleep(uint64_t ns)
+{
+  struct timespec ts = { ns / NS_PER_SEC, ns % NS_PER_SEC };
+  return nanosleep(&ts, NULL);
+}
 
 /* timer control functions */
 

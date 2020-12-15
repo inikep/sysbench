@@ -23,8 +23,10 @@
         - [macOS](#macos)
     - [Build and Install](#build-and-install)
 - [Usage](#usage)
-    - [General syntax](#general-syntax)
-    - [General command line options](#general-command-line-options)
+    - [General Syntax](#general-syntax)
+    - [General Command Line Options](#general-command-line-options)
+    - [Random Numbers Options](#random-numbers-options)
+- [Versioning](#versioning)
 
 <!-- markdown-toc end -->
 
@@ -89,6 +91,11 @@ Quick install instructions:
   sudo dnf -y install sysbench
   ```
 
+- Arch Linux:
+  ``` shell
+  sudo pacman -Suy sysbench
+  ```
+
 ## macOS
 
 On macOS, up-to-date sysbench packages are available from Homebrew:
@@ -131,27 +138,27 @@ build and use an older 0.5 release on Windows.
 
 ### Debian/Ubuntu
 ``` shell
-    apt -y install make automake libtool pkg-config libaio-dev vim-common
+    apt -y install make automake libtool pkg-config libaio-dev
     # For MySQL support
-    apt -y install libmysqlclient-dev
+    apt -y install libmysqlclient-dev libssl-dev
     # For PostgreSQL support
     apt -y install libpq-dev
 ```
 
 ### RHEL/CentOS
 ``` shell
-    yum -y install make automake libtool pkgconfig libaio-devel vim-common
+    yum -y install make automake libtool pkgconfig libaio-devel
     # For MySQL support, replace with mysql-devel on RHEL/CentOS 5
-    yum -y install mariadb-devel
+    yum -y install mariadb-devel openssl-devel
     # For PostgreSQL support
     yum -y install postgresql-devel
 ```
 
 ### Fedora
 ``` shell
-    dnf -y install make automake libtool pkgconfig libaio-devel vim-common
+    dnf -y install make automake libtool pkgconfig libaio-devel
     # For MySQL support
-    dnf -y install mariadb-devel
+    dnf -y install mariadb-devel openssl-devel
     # For PostgreSQL support
     dnf -y install postgresql-devel
 ```
@@ -160,11 +167,13 @@ build and use an older 0.5 release on Windows.
 
 Assuming you have Xcode (or Xcode Command Line Tools) and Homebrew installed:
 ``` shell
-    brew install automake pkg-config
+    brew install automake libtool openssl pkg-config
     # For MySQL support
     brew install mysql
     # For PostgreSQL support
     brew install postgresql
+    # openssl is not linked by Homebrew, this is to avoid "ld: library not found for -lssl"
+    export LDFLAGS=-L/usr/local/opt/openssl/lib 
 ```
 
 ## Build and Install
@@ -172,7 +181,7 @@ Assuming you have Xcode (or Xcode Command Line Tools) and Homebrew installed:
     ./autogen.sh
     # Add --with-pgsql to build with PostgreSQL support
     ./configure
-    make
+    make -j
     make install
 ```
 
@@ -186,12 +195,9 @@ To compile sysbench without MySQL support, use `--without-mysql`. If no
 database drivers are available database-related scripts will not work,
 but other benchmarks will be functional.
 
-See [README-Oracle.md](README-Oracle.md) for instructions on building
-with Oracle client libraries.
-
 # Usage
 
-## General syntax
+## General Syntax
 
 The general command line syntax for sysbench is:
 
@@ -237,7 +243,7 @@ The general command line syntax for sysbench is:
 You can use `sysbench --help` to display the general command line syntax
 and options.
 
-## General command line options
+## General Command Line Options
 
 The table below lists the supported common options, their descriptions and default values:
 
@@ -248,6 +254,7 @@ The table below lists the supported common options, their descriptions and defau
 | `--time`              | Limit for total execution time in seconds. 0 means no limit                                                                                                                                                                                                                                                                                                                                                                                                             | 10              |
 | `--warmup-time`       | Execute events for this many seconds with statistics disabled before the actual benchmark run with statistics enabled. This is useful when you want to exclude the initial period of a benchmark run from statistics. In many benchmarks, the initial period is not representative because CPU/database/page and other caches need some time to warm up                                                                                                                                                                                                                                                                                                  | 0               |
 | `--rate`              | Average transactions rate. The number specifies how many events (transactions) per seconds should be executed by all threads on average. 0 (default) means unlimited rate, i.e. events are executed as fast as possible                                                                                                                                                                                                                                                                 | 0               |
+| `--thread-init-timeout` | Wait time in seconds for worker threads to initialize                                                                                                                                                                                                                                                                                                                                                                                                                  | 30              |
 | `--thread-stack-size` | Size of stack for each thread                                                                                                                                                                                                                                                                                                                                                                                                                                           | 32K             |
 | `--report-interval`   | Periodically report intermediate statistics with a specified interval in seconds. Note that statistics produced by this option is per-interval rather than cumulative. 0 disables intermediate reports                                                                                                                                                                                                                                                                  | 0               |
 | `--debug`             | Print more debug info                                                                                                                                                                                                                                                                                                                                                                                                                                                   | off             |
@@ -255,9 +262,39 @@ The table below lists the supported common options, their descriptions and defau
 | `--help`              | Print help on general syntax or on a specified test, and exit                                                                                                                                                                                                                                                                                                                                                                                                           | off             |
 | `--verbosity`         | Verbosity level (0 - only critical messages, 5 - debug)                                                                                                                                                                                                                                                                                                                                                                                                                 | 4               |
 | `--percentile`        | sysbench measures execution times for all processed requests to display statistical information like minimal, average and maximum execution time. For most benchmarks it is also useful to know a request execution time value matching some percentile (e.g. 95% percentile means we should drop 5% of the most long requests and choose the maximal value from the remaining ones). This option allows to specify a percentile rank of query execution times to count | 95              |
-| `--luajit-cmd`        | perform a LuaJIT control command. This option is equivalent to `luajit -j`. See [LuaJIT documentation](http://luajit.org/running.html) for more information                                                                                                                                                                                                                                                                                                             |               |
+| `--luajit-cmd`        | perform a LuaJIT control command. This option is equivalent to `luajit -j`. See [LuaJIT documentation](http://luajit.org/running.html#opt_j) for more information                                                                                                                                                                                                                                                                                                       |               |
 
 Note that numerical values for all *size* options (like `--thread-stack-size` in this table) may be specified by appending the corresponding multiplicative suffix (K for kilobytes, M for megabytes, G for gigabytes and T for terabytes).
+
+## Random Numbers Options
+
+sysbench provides a number of algorithms to generate random numbers that are distributed according to a given probability distribution. The table below lists options that can be used to control those algorithms.
+
+*Option*              | *Description* | *Default value*
+----------------------|---------------|----------------
+`--rand-type` | random numbers distribution {uniform, gaussian, special, pareto, zipfian} to use by default. Benchmark scripts may choose to use either the default distribution, or specify it explictly, i.e. override the default. | special
+`--rand-seed` | seed for random number generator. When 0, the current time is used as an RNG seed. | 0
+`--rand-spec-iter` | number of iterations for the special distribution | 12
+`--rand-spec-pct` | percentage of the entire range where 'special' values will fall in the special distribution | 1
+`--rand-spec-res` | percentage of 'special' values to use for the special distribution | 75
+`--rand-pareto-h` | shape parameter for the Pareto distribution | 0.2
+`--rand-zipfian-exp` | shape parameter (theta) for the Zipfian distribution | 0.8
+
+# Versioning
+
+For transparency and insight into its release cycle, and for striving to maintain backward compatibility, sysbench will be maintained under the Semantic Versioning guidelines as much as possible.
+
+Releases will be numbered with the following format:
+
+`<major>.<minor>.<patch>`
+
+And constructed with the following guidelines:
+
+* Breaking backward compatibility bumps the major (and resets the minor and patch)
+* New additions without breaking backward compatibility bumps the minor (and resets the patch)
+* Bug fixes and misc changes bumps the patch
+
+For more information on SemVer, please visit [http://semver.org/](http://semver.org/).
 
 [coveralls-badge]: https://coveralls.io/repos/github/akopytov/sysbench/badge.svg?branch=master
 [coveralls-url]: https://coveralls.io/github/akopytov/sysbench?branch=master

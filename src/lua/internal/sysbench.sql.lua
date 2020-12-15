@@ -56,7 +56,7 @@ typedef struct
   sql_value       *values;     /* Array of column values */
 } sql_row;
 
-/* Query type for statistics */
+/* Statistic counter types */
 
 typedef enum
 {
@@ -66,6 +66,8 @@ typedef enum
   SB_CNT_TRX,
   SB_CNT_ERROR,
   SB_CNT_RECONNECT,
+  SB_CNT_BYTES_READ,
+  SB_CNT_BYTES_WRITTEN,
   SB_CNT_MAX
 } sb_counter_type;
 
@@ -135,7 +137,7 @@ void db_connection_free(sql_connection *con);
 
 int db_bulk_insert_init(sql_connection *, const char *, size_t);
 int db_bulk_insert_next(sql_connection *, const char *, size_t);
-void db_bulk_insert_done(sql_connection *);
+int db_bulk_insert_done(sql_connection *);
 
 sql_result *db_query(sql_connection *con, const char *query, size_t len);
 
@@ -271,15 +273,18 @@ function connection_methods.query(self, query)
 end
 
 function connection_methods.bulk_insert_init(self, query)
-   return ffi.C.db_bulk_insert_init(self, query, #query)
+   return assert(ffi.C.db_bulk_insert_init(self, query, #query) == 0,
+                 "db_bulk_insert_init() failed")
 end
 
 function connection_methods.bulk_insert_next(self, val)
-   return ffi.C.db_bulk_insert_next(self, val, #val)
+   return assert(ffi.C.db_bulk_insert_next(self, val, #val) == 0,
+                 "db_bulk_insert_next() failed")
 end
 
 function connection_methods.bulk_insert_done(self)
-   return ffi.C.db_bulk_insert_done(self)
+   return assert(ffi.C.db_bulk_insert_done(self) == 0,
+                 "db_bulk_insert_done() failed")
 end
 
 function connection_methods.prepare(self, query)
@@ -296,7 +301,7 @@ end
 function connection_methods.query_row(self, query)
    local rs = self:query(query)
 
-   if rs == nil then
+   if rs == nil or rs.nrows == 0 then
       return nil
    end
 
@@ -411,8 +416,6 @@ function statement_methods.bind_param(self, ...)
 
    local binds = ffi.new("sql_bind[?]", len)
 
-   local i, param
-
    for i, param in ipairs({...}) do
       binds[i-1].type = param.type
       binds[i-1].buffer = param.buffer
@@ -460,7 +463,6 @@ function result_methods.fetch_row(self)
       return nil
    end
 
-   local i
    for i = 0, self.nfields-1 do
       if row.values[i].ptr ~= nil then -- not a NULL value
          res[i+1] = ffi.string(row.values[i].ptr, tonumber(row.values[i].len))

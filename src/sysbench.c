@@ -1,5 +1,5 @@
 /* Copyright (C) 2004 MySQL AB
-   Copyright (C) 2004-2017 Alexey Kopytov <akopytov@gmail.com>
+   Copyright (C) 2004-2018 Alexey Kopytov <akopytov@gmail.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -120,12 +120,6 @@ sb_arg_t general_args[] =
          "equivalent to 'luajit -j'. See LuaJIT documentation for more "
          "information", NULL, STRING),
 
-  /* Deprecated aliases */
-  SB_OPT("tx-rate", "deprecated alias for --rate", "0", INT),
-  SB_OPT("max-requests", "deprecated alias for --events", "0", INT),
-  SB_OPT("max-time", "deprecated alias for --time", "0", INT),
-  SB_OPT("num-threads", "deprecated alias for --threads", "1", INT),
-
   SB_OPT_END
 };
 
@@ -146,11 +140,11 @@ static int thread_init_timeout;
 static sb_barrier_t report_barrier;
 
 /* structures to handle queue of events, needed for tx_rate mode */
+static pthread_mutex_t    queue_mutex;
+static pthread_cond_t     queue_cond;
 static uint64_t           queue_array[MAX_QUEUE_LEN] CK_CC_CACHELINE;
 static ck_ring_buffer_t   queue_ring_buffer[MAX_QUEUE_LEN] CK_CC_CACHELINE;
 static ck_ring_t          queue_ring CK_CC_CACHELINE;
-
-static int queue_is_full CK_CC_CACHELINE;
 
 static int report_thread_created CK_CC_CACHELINE;
 static int checkpoints_thread_created;
@@ -211,12 +205,14 @@ static void report_get_common_stat(sb_stat_t *stat, sb_counters_t cnt)
 
   stat->threads_running = sb_globals.threads_running;
 
-  stat->events     = cnt[SB_CNT_EVENT];
-  stat->reads      = cnt[SB_CNT_READ];
-  stat->writes     = cnt[SB_CNT_WRITE];
-  stat->other      = cnt[SB_CNT_OTHER];
-  stat->errors     = cnt[SB_CNT_ERROR];
-  stat->reconnects = cnt[SB_CNT_RECONNECT];
+  stat->events =        cnt[SB_CNT_EVENT];
+  stat->reads =         cnt[SB_CNT_READ];
+  stat->writes =        cnt[SB_CNT_WRITE];
+  stat->other =         cnt[SB_CNT_OTHER];
+  stat->errors =        cnt[SB_CNT_ERROR];
+  stat->reconnects =    cnt[SB_CNT_RECONNECT];
+  stat->bytes_read =    cnt[SB_CNT_BYTES_READ];
+  stat->bytes_written = cnt[SB_CNT_BYTES_WRITTEN];
 
   stat->time_total = NS2SEC(sb_timer_value(&sb_exec_timer)) -
     sb_globals.warmup_time;
@@ -233,9 +229,7 @@ static void report_intermediate(void)
     silence intermediate reports at the end of the test
   */
   if (ck_pr_load_uint(&sb_globals.report_interval) == 0)
-  {
     return;
-  }
 
   sb_counters_agg_intermediate(cnt);
   report_get_common_stat(&stat, cnt);
@@ -294,8 +288,10 @@ void sb_report_cumulative(sb_stat_t *stat)
   }
 
   log_text(LOG_NOTICE, "");
-  log_text(LOG_NOTICE, "General statistics:");
-  log_text(LOG_NOTICE, "    total time:                          %.4fs",
+  log_text(LOG_NOTICE, "Throughput:");
+  log_text(LOG_NOTICE, "    events/s (eps):                      %.4f",
+           stat->events / stat->time_interval);
+  log_text(LOG_NOTICE, "    time elapsed:                        %.4fs",
            stat->time_total);
   log_text(LOG_NOTICE, "    total number of events:              %" PRIu64,
            stat->events);
@@ -303,20 +299,20 @@ void sb_report_cumulative(sb_stat_t *stat)
   log_text(LOG_NOTICE, "");
 
   log_text(LOG_NOTICE, "Latency (ms):");
-  log_text(LOG_NOTICE, "         min:                            %10.2f",
+  log_text(LOG_NOTICE, "         min: %39.2f",
            SEC2MS(stat->latency_min));
-  log_text(LOG_NOTICE, "         avg:                            %10.2f",
+  log_text(LOG_NOTICE, "         avg: %39.2f",
            SEC2MS(stat->latency_avg));
-  log_text(LOG_NOTICE, "         max:                            %10.2f",
+  log_text(LOG_NOTICE, "         max: %39.2f",
            SEC2MS(stat->latency_max));
 
   if (sb_globals.percentile > 0)
-    log_text(LOG_NOTICE, "        %3dth percentile:                %10.2f",
+    log_text(LOG_NOTICE, "        %3dth percentile: %27.2f",
              sb_globals.percentile, SEC2MS(stat->latency_pct));
   else
     log_text(LOG_NOTICE, "         percentile stats:               disabled");
 
-  log_text(LOG_NOTICE, "         sum:                            %10.2f",
+  log_text(LOG_NOTICE, "         sum: %39.2f",
            SEC2MS(stat->latency_sum));
   log_text(LOG_NOTICE, "");
 
@@ -577,15 +573,6 @@ static int parse_general_arguments(int argc, char *argv[])
 
       return 1;
     }
-    else if (!strncmp(argv[i] + 2, "test=", 5))
-    {
-      /* Support the deprecated --test for compatibility reasons */
-      fprintf(stderr,
-              "WARNING: the --test option is deprecated. You can pass a "
-              "script name or path on the command line without any options.\n");
-      parse_option(argv[i] + 2, true);
-      testname = sb_get_value_string("test");
-    }
     else if (!parse_option(argv[i]+2, false))
     {
       /* An option from general_args. Exclude it from future processing */
@@ -613,12 +600,8 @@ static int parse_test_arguments(sb_test_t *test, int argc, char *argv[])
     if (argv[i] == NULL || strncmp(argv[i], "--", 2))
       continue;
 
-    /*
-      At this stage an unrecognized option must throw a error, unless the test
-      defines no options (for compatibility with legacy Lua scripts). In the
-      latter case we just export all unrecognized options as strings.
-    */
-    if (parse_option(argv[i]+2, test->args == NULL))
+    /* At this stage an unrecognized option must throw a error. */
+    if (parse_option(argv[i]+2, false))
     {
       fprintf(stderr, "invalid option: %s\n", argv[i]);
       return 1;
@@ -676,7 +659,7 @@ void print_run_mode(sb_test_t *test)
     log_text(LOG_NOTICE, "Debug mode enabled.\n");
   
   if (sb_globals.validate)
-    log_text(LOG_NOTICE, "Additional request validation enabled.\n");
+    log_text(LOG_NOTICE, "Validation checks: on.\n");
 
   if (sb_rand_seed)
   {
@@ -711,16 +694,20 @@ bool sb_more_events(int thread_id)
 
   /* Check if we have a time limit */
   if (sb_globals.max_time_ns > 0 &&
-      sb_timer_value(&sb_exec_timer) >= sb_globals.max_time_ns)
+      SB_UNLIKELY(sb_timer_value(&sb_exec_timer) >= sb_globals.max_time_ns))
   {
     log_text(LOG_INFO, "Time limit exceeded, exiting...");
     return false;
   }
 
   /* Check if we have a limit on the number of events */
-  if (sb_globals.max_events > 0 &&
-      ck_pr_faa_64(&sb_globals.nevents, 1) >= sb_globals.max_events)
+  const uint64_t max_events = ck_pr_load_64(&sb_globals.max_events);
+  if (max_events > 0 &&
+      SB_UNLIKELY(ck_pr_faa_64(&sb_globals.nevents, 1) >= max_events))
+  {
+    log_text(LOG_INFO, "Event limit exceeded, exiting...");
     return false;
+  }
 
   /* If we are in tx_rate mode, we take events from queue */
   if (sb_globals.tx_rate > 0)
@@ -728,14 +715,23 @@ bool sb_more_events(int thread_id)
     void *ptr = NULL;
 
     while (!ck_ring_dequeue_spmc(&queue_ring, queue_ring_buffer, &ptr) &&
-           !ck_pr_load_int(&queue_is_full))
-      usleep(500000.0 * sb_globals.threads / sb_globals.tx_rate);
-
-    if (ck_pr_load_int(&queue_is_full))
+           !sb_globals.error)
     {
-      log_text(LOG_FATAL, "Event queue is full. Terminating the worker thread");
+      pthread_mutex_lock(&queue_mutex);
+      pthread_cond_wait(&queue_cond, &queue_mutex);
+      pthread_mutex_unlock(&queue_mutex);
 
-      return false;
+      /* Re-check for global error and time limit after waiting */
+
+      if (sb_globals.error)
+        return false;
+
+      if (sb_globals.max_time_ns > 0 &&
+          SB_UNLIKELY(sb_timer_value(&sb_exec_timer) >= sb_globals.max_time_ns))
+      {
+        log_text(LOG_INFO, "Time limit exceeded, exiting...");
+        return false;
+      }
     }
 
     ck_pr_inc_int(&sb_globals.concurrency);
@@ -851,14 +847,15 @@ static void *worker_thread(void *arg)
   return NULL;
 }
 
+/* Generate exponentially distributed number with a given Lambda */
+
+static inline double sb_rand_exp(double lambda)
+{
+  return -lambda * log(1 - sb_rand_uniform_double());
+}
+
 static void *eventgen_thread_proc(void *arg)
 {
-  unsigned long long pause_ns;
-  unsigned long long next_ns;
-  unsigned long long curr_ns;
-  unsigned long long intr_ns;
-  int                i;
-
   (void)arg; /* unused */
 
   sb_tls_thread_id = SB_BACKGROUND_THREAD_ID;
@@ -868,7 +865,12 @@ static void *eventgen_thread_proc(void *arg)
 
   ck_ring_init(&queue_ring, MAX_QUEUE_LEN);
 
-  i = 0;
+  if (pthread_mutex_init(&queue_mutex, NULL) ||
+      pthread_cond_init(&queue_cond, NULL))
+  {
+    sb_barrier_wait(&worker_barrier);
+    return NULL;
+  }
 
   log_text(LOG_DEBUG, "Event generating thread started");
 
@@ -878,41 +880,48 @@ static void *eventgen_thread_proc(void *arg)
 
   eventgen_thread_created = 1;
 
-  curr_ns = sb_timer_value(&sb_exec_timer);
-  /* emulate exponential distribution with Lambda = tx_rate */
-  intr_ns = (long) (log(1 - sb_rand_uniform_double()) /
-                    (-(double) sb_globals.tx_rate)*1000000);
-  next_ns = curr_ns + intr_ns*1000;
+  /*
+    Get exponentially distributed time intervals in nanoseconds with Lambda =
+    tx_rate. Alternatively, we can use Lambda = tx_rate / 1e9
+  */
+  const double lambda = 1e9 / sb_globals.tx_rate;
 
-  for (;;)
+  uint64_t curr_ns = sb_timer_value(&sb_exec_timer);
+  uint64_t intr_ns = sb_rand_exp(lambda);
+  uint64_t next_ns = curr_ns + intr_ns;
+
+  for (int i = 0; ; i = (i+1) % MAX_QUEUE_LEN)
   {
     curr_ns = sb_timer_value(&sb_exec_timer);
+    intr_ns = sb_rand_exp(lambda);
+    next_ns += intr_ns;
 
-    /* emulate exponential distribution with Lambda = tx_rate */
-    intr_ns = (long) (log(1 - sb_rand_uniform_double()) /
-                      (-(double)sb_globals.tx_rate)*1000000);
-
-    next_ns = next_ns + intr_ns*1000;
-    if (next_ns > curr_ns)
+    if (sb_globals.max_time_ns > 0 &&
+        SB_UNLIKELY(curr_ns >= sb_globals.max_time_ns))
     {
-      pause_ns = next_ns - curr_ns;
-      usleep(pause_ns / 1000);
+      /* Wake all waiting threads */
+      pthread_cond_broadcast(&queue_cond);
+      return NULL;
     }
+
+    if (next_ns > curr_ns)
+      sb_nanosleep(next_ns - curr_ns);
 
     /* Enqueue a new event */
     queue_array[i] = sb_timer_value(&sb_exec_timer);
     if (ck_ring_enqueue_spmc(&queue_ring, queue_ring_buffer,
-                             &queue_array[i++]) == false)
+                             &queue_array[i]) == false)
     {
-      ck_pr_store_int(&queue_is_full, 1);
+      sb_globals.error = 1;
       log_text(LOG_FATAL,
                "The event queue is full. This means the worker threads are "
                "unable to keep up with the specified event generation rate");
+      pthread_cond_broadcast(&queue_cond);
       return NULL;
     }
 
-    if (i >= MAX_QUEUE_LEN - 1)
-      i = 0;
+    /* Wake up one waiting thread, if there are any */
+    pthread_cond_signal(&queue_cond);
   }
 
   return NULL;
@@ -936,9 +945,9 @@ static void *report_thread_proc(void *arg)
   sb_rand_thread_init();
 
   if (sb_lua_loaded() && sb_lua_report_thread_init())
-  {
     return NULL;
-  }
+
+  pthread_cleanup_push(sb_lua_report_thread_done, NULL);
 
   log_text(LOG_DEBUG, "Reporting thread started");
 
@@ -953,7 +962,7 @@ static void *report_thread_proc(void *arg)
 
   for (;;)
   {
-    usleep(pause_ns / 1000);
+    sb_nanosleep(pause_ns);
 
     report_intermediate();
 
@@ -966,6 +975,8 @@ static void *report_thread_proc(void *arg)
     pause_ns = next_ns - curr_ns;
   }
 
+  pthread_cleanup_pop(1);
+
   return NULL;
 }
 
@@ -973,7 +984,6 @@ static void *report_thread_proc(void *arg)
 
 static void *checkpoints_thread_proc(void *arg)
 {
-  unsigned long long       pause_ns;
   unsigned long long       next_ns;
   unsigned long long       curr_ns;
   unsigned int             i;
@@ -986,9 +996,9 @@ static void *checkpoints_thread_proc(void *arg)
   sb_rand_thread_init();
 
   if (sb_lua_loaded() && sb_lua_report_thread_init())
-  {
     return NULL;
-  }
+
+  pthread_cleanup_push(sb_lua_report_thread_done, NULL);
 
   log_text(LOG_DEBUG, "Checkpoints report thread started");
 
@@ -1005,8 +1015,7 @@ static void *checkpoints_thread_proc(void *arg)
     if (next_ns <= curr_ns)
       continue;
 
-    pause_ns = next_ns - curr_ns;
-    usleep(pause_ns / 1000);
+    sb_nanosleep(next_ns - curr_ns);
 
     log_timestamp(LOG_NOTICE, NS2SEC(sb_timer_value(&sb_exec_timer)),
                   "Checkpoint report:");
@@ -1014,8 +1023,7 @@ static void *checkpoints_thread_proc(void *arg)
     report_cumulative();
   }
 
-  if (sb_lua_loaded())
-    sb_lua_report_thread_done();
+  pthread_cleanup_pop(1);
 
   return NULL;
 }
@@ -1053,6 +1061,7 @@ static int run_test(sb_test_t *test)
   pthread_t    checkpoints_thread;
   pthread_t    eventgen_thread;
   unsigned int barrier_threads;
+  uint64_t     old_max_events = 0;
 
   /* initialize test */
   if (test->ops.init != NULL && test->ops.init() != 0)
@@ -1071,9 +1080,6 @@ static int run_test(sb_test_t *test)
     return 1;
 
   pthread_mutex_init(&sb_globals.exec_mutex, NULL);
-
-
-  queue_is_full = 0;
 
   sb_globals.threads_running = 0;
 
@@ -1145,6 +1151,13 @@ static int run_test(sb_test_t *test)
   alarm(thread_init_timeout);
 #endif
 
+  if (sb_globals.warmup_time > 0)
+  {
+    /* Disable the max_events limit for the warmup stage */
+    old_max_events = sb_globals.max_events;
+    sb_globals.max_events = 0;
+  }
+
   if (sb_barrier_wait(&worker_barrier) < 0)
   {
     log_text(LOG_FATAL, "Threads initialization failed!");
@@ -1165,9 +1178,13 @@ static int run_test(sb_test_t *test)
 
   if (sb_globals.warmup_time > 0)
   {
-    log_text(LOG_NOTICE, "Warming up for %d seconds...\n", sb_globals.warmup_time);
+    log_text(LOG_NOTICE, "Warming up for %d seconds...\n",
+             sb_globals.warmup_time);
 
     usleep(sb_globals.warmup_time * 1000000);
+
+    /* Re-enable the max_events limit, if it was set */
+    ck_pr_store_64(&sb_globals.max_events, old_max_events);
 
     /* Perform a checkpoint to reset previously collected stats */
     sb_stat_t stat;
@@ -1201,6 +1218,30 @@ static int run_test(sb_test_t *test)
   if (test->ops.cleanup != NULL && test->ops.cleanup() != 0)
     return 1;
 
+  if (report_thread_created)
+  {
+    if (sb_thread_cancel(report_thread) || sb_thread_join(report_thread, NULL))
+      log_errno(LOG_FATAL, "Terminating the reporting thread failed.");
+  }
+
+  if (eventgen_thread_created)
+  {
+    /*
+      When a time limit is used, the event generation thread may terminate
+      itself.
+    */
+    if ((sb_thread_cancel(eventgen_thread) ||
+         sb_thread_join(eventgen_thread, NULL)) && sb_globals.max_time_ns == 0)
+      log_text(LOG_FATAL, "Terminating the event generator thread failed.");
+  }
+
+  if (checkpoints_thread_created)
+  {
+    if (sb_thread_cancel(checkpoints_thread) ||
+        sb_thread_join(checkpoints_thread, NULL))
+      log_errno(LOG_FATAL, "Terminating the checkpoint thread failed.");
+  }
+
   /* print test-specific stats */
   if (!sb_globals.error)
   {
@@ -1219,27 +1260,6 @@ static int run_test(sb_test_t *test)
   /* finalize test */
   if (test->ops.done != NULL)
     (*(test->ops.done))();
-
-  /* Delay killing the reporting threads to avoid mutex lock leaks */
-  if (report_thread_created)
-  {
-    if (sb_thread_cancel(report_thread) || sb_thread_join(report_thread, NULL))
-      log_errno(LOG_FATAL, "Terminating the reporting thread failed.");
-  }
-
-  if (eventgen_thread_created)
-  {
-    if (sb_thread_cancel(eventgen_thread) ||
-        sb_thread_join(eventgen_thread, NULL))
-      log_text(LOG_FATAL, "Terminating the event generator thread failed.");
-  }
-
-  if (checkpoints_thread_created)
-  {
-    if (sb_thread_cancel(checkpoints_thread) ||
-        sb_thread_join(checkpoints_thread, NULL))
-      log_errno(LOG_FATAL, "Terminating the checkpoint thread failed.");
-  }
 
   return sb_globals.error != 0;
 }
@@ -1278,14 +1298,7 @@ static int init(void)
   sb_list_item_t    *pos_val;
   value_t           *val;
 
-  sb_globals.threads = sb_get_value_int("num-threads");
-  if (sb_globals.threads > 1)
-  {
-    log_text(LOG_WARNING, "--num-threads is deprecated, use --threads instead");
-    sb_opt_copy("threads", "num-threads");
-  }
-  else
-    sb_globals.threads = sb_get_value_int("threads");
+  sb_globals.threads = sb_get_value_int("threads");
 
   thread_init_timeout = sb_get_value_int("thread-init-timeout");
   
@@ -1296,14 +1309,7 @@ static int init(void)
     return 1;
   }
 
-  sb_globals.max_events = sb_get_value_int("max-requests");
-  if (sb_globals.max_events > 0)
-  {
-    log_text(LOG_WARNING, "--max-requests is deprecated, use --events instead");
-    sb_opt_copy("events", "max-requests");
-  }
-  else
-    sb_globals.max_events = sb_get_value_int("events");
+  sb_globals.max_events = sb_get_value_int("events");
 
   sb_globals.warmup_time = sb_get_value_int("warmup-time");
   if (sb_globals.warmup_time < 0)
@@ -1313,14 +1319,7 @@ static int init(void)
     return 1;
   }
 
-  int max_time = sb_get_value_int("max-time");
-  if (max_time > 0)
-  {
-    log_text(LOG_WARNING, "--max-time is deprecated, use --time instead");
-    sb_opt_copy("time", "max-time");
-  }
-  else
-    max_time = sb_get_value_int("time");
+  int max_time = sb_get_value_int("time");
 
   sb_globals.max_time_ns = SEC2NS(max_time);
 
@@ -1382,14 +1381,7 @@ static int init(void)
     return 1;
   }
 
-  sb_globals.tx_rate = sb_get_value_int("tx-rate");
-  if (sb_globals.tx_rate > 0)
-  {
-    log_text(LOG_WARNING, "--tx-rate is deprecated, use --rate instead");
-    sb_opt_copy("rate", "tx-rate");
-  }
-  else
-    sb_globals.tx_rate = sb_get_value_int("rate");
+  sb_globals.tx_rate = sb_get_value_int("rate");
 
   sb_globals.report_interval = sb_get_value_int("report-interval");
 

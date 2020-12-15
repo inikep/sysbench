@@ -1,16 +1,19 @@
 dnl ---------------------------------------------------------------------------
-dnl Macro: AC_CHECK_MYSQLR
+dnl Macro: SB_CHECK_MYSQL
 dnl First check if the MySQL root directory is specified with --with-mysql.
 dnl Otherwise check for custom MySQL paths in --with-mysql-includes and
 dnl --with-mysql-libs. If some paths are not specified explicitly, try to get
 dnl them from mysql_config.
 dnl ---------------------------------------------------------------------------
 
-AC_DEFUN([AC_CHECK_MYSQLR],[
+AC_DEFUN([SB_CHECK_MYSQL],[
+
+AS_IF([test "x$with_mysql" != xno], [
+
 # Check for custom MySQL root directory
-if test [ x$1 != xyes -a x$1 != xno ] 
+if test [ "x$with_mysql" != xyes -a "x$with_mysql" != xno ] 
 then
-    ac_cv_mysql_root=`echo $1 | sed -e 's+/$++'`
+    ac_cv_mysql_root=`echo "$with_mysql" | sed -e 's+/$++'`
     if test [ -d "$ac_cv_mysql_root/include" -a \
               -d "$ac_cv_mysql_root/libmysql_r" ]
     then
@@ -104,4 +107,32 @@ ERROR: cannot find MySQL libraries. If you want to compile with MySQL support,
         fi
     fi
 fi
+
+AC_DEFINE([USE_MYSQL], 1,
+          [Define to 1 if you want to compile with MySQL support])
+
+USE_MYSQL=1
+AC_SUBST([MYSQL_LIBS])
+AC_SUBST([MYSQL_CFLAGS])
+
+AC_MSG_CHECKING([if mysql.h defines MYSQL_OPT_SSL_MODE])
+
+SAVE_CFLAGS="${CFLAGS}"
+CFLAGS="${CFLAGS} ${MYSQL_CFLAGS}"
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+        [[
+#include <mysql.h>
+
+enum mysql_option opt = MYSQL_OPT_SSL_MODE;
+        ]])], [
+          AC_DEFINE([HAVE_MYSQL_OPT_SSL_MODE], 1,
+                    [Define to 1 if mysql.h defines MYSQL_OPT_SSL_MODE])
+          AC_MSG_RESULT([yes])
+          ], [AC_MSG_RESULT([no])])
+])
+CFLAGS="${SAVE_CFLAGS}"
+
+
+AM_CONDITIONAL([USE_MYSQL], test "x$with_mysql" != xno)
+AC_SUBST([USE_MYSQL])
 ])

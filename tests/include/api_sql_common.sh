@@ -19,14 +19,15 @@ end
 
 function event()
   local e, m
+  local inspect = require("inspect")
 
   print("drv:name() = " .. drv:name())
   print("SQL types:")
-  for k,v in pairs(sysbench.sql.type) do print(k .. " = " .. v) end
+  print(inspect(sysbench.sql.type))
   print('--')
 
   print("SQL error codes:")
-  for k,v in pairs(sysbench.sql.error) do print(k .. " = " .. v) end
+  print(inspect(sysbench.sql.error))
   print('--')
 
   e, m = pcall(sysbench.sql.driver, "non-existing")
@@ -140,13 +141,18 @@ function event()
   print(m)
 end
 EOF
-sysbench $SB_ARGS --mysql-host="non-existing" --pgsql-host="non-existing" run
+# Reset --mysql-socket if it's specified on the command line, otherwise sysbench
+# will assume --mysql-host=localhost
+sysbench $SB_ARGS --mysql-host="non-existing" --pgsql-host="non-existing" \
+         --mysql-socket= \
+         run
 
 # Error hooks
 cat >$CRAMTMP/api_sql.lua <<EOF
 function sysbench.hooks.sql_error_ignorable(e)
   print("Got an error descriptor:")
-  for k,v in pairs(e) do print("  " .. k .. " = ", v) end
+  local inspect = require("inspect")
+  print(inspect(e))
 end
 
 function event()
@@ -175,9 +181,11 @@ EOF
 sysbench $SB_ARGS run
 
 
+cat <<EOF
 ########################################################################
 # Multiple connections test
 ########################################################################
+EOF
 cat >$CRAMTMP/api_sql.lua <<EOF
 function thread_init()
   drv = sysbench.sql.driver()
@@ -202,3 +210,54 @@ end
 EOF
 
 sysbench $SB_ARGS run
+
+cat <<EOF
+########################################################################
+# Incorrect bulk API usage
+########################################################################
+EOF
+cat >$CRAMTMP/api_sql.lua <<EOF
+c = sysbench.sql.driver():connect()
+c:query("CREATE TABLE t1(a INT)")
+c:bulk_insert_init("INSERT INTO t1 VALUES")
+c:bulk_insert_next("(1)")
+c:bulk_insert_done()
+e,m = pcall(function () c:bulk_insert_next("(2)") end)
+print(m)
+c:bulk_insert_done()
+c:query("DROP TABLE t1")
+EOF
+
+sysbench $SB_ARGS
+
+cat <<EOF
+########################################################################
+# query_row() with an empty result set
+########################################################################
+EOF
+cat >$CRAMTMP/api_sql.lua <<EOF
+c = sysbench.sql.driver():connect()
+c:query("CREATE TABLE t1(a INT)")
+print(c:query_row("SELECT * FROM t1"))
+c:query("DROP TABLE t1")
+EOF
+
+sysbench $SB_ARGS
+
+cat <<EOF
+########################################################################
+# GH-282: Mysql's fetch_row() is broken
+########################################################################
+EOF
+cat >$CRAMTMP/api_sql.lua <<EOF
+connection = sysbench.sql.driver():connect()
+rows = connection:query("select 1 union select 2")
+
+r = rows:fetch_row();
+while ( r ) do
+  print( r[ 1 ] )
+  r = rows:fetch_row()
+end
+EOF
+
+sysbench $SB_ARGS

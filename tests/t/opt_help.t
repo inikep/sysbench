@@ -28,18 +28,12 @@ separately.
     --version[=on|off]              print version and exit [off]
     --config-file=FILENAME          File containing command line options
     --luajit-cmd=STRING             perform LuaJIT control command. This option is equivalent to 'luajit -j'. See LuaJIT documentation for more information
-    --tx-rate=N                     deprecated alias for --rate [0]
-    --max-requests=N                deprecated alias for --events [0]
-    --max-time=N                    deprecated alias for --time [0]
-    --num-threads=N                 deprecated alias for --threads [1]
   
   Pseudo-Random Numbers Generator options:
-    --rand-type=STRING random numbers distribution {uniform,gaussian,special,pareto} [special]
-    --rand-spec-iter=N number of iterations used for numbers generation [12]
-    --rand-spec-pct=N  percentage of values to be treated as 'special' (for special distribution) [1]
-    --rand-spec-res=N  percentage of 'special' values to use (for special distribution) [75]
-    --rand-seed=N      seed for random number generator. When 0, the current time is used as a RNG seed. [0]
-    --rand-pareto-h=N  parameter h for pareto distribution [0.2]
+    --rand-type=STRING   random numbers distribution {uniform, gaussian, pareto, zipfian} to use by default [uniform]
+    --rand-seed=N        seed for random number generator. When 0, the current time is used as an RNG seed. [0]
+    --rand-pareto-h=N    shape parameter for the Pareto distribution [0.2]
+    --rand-zipfian-exp=N shape parameter (exponent, theta) for the Zipfian distribution [0.8]
   
   Log options:
     --verbosity=N verbosity level {5 - debug, 0 - only critical messages} [3]
@@ -49,7 +43,7 @@ separately.
   
   General database options:
   
-    --db-driver=STRING  specifies database driver to use ('help' to get list of available drivers)
+    --db-driver=STRING  specifies database driver to use \('help' to get list of available drivers\)( \[mysql\])? (re)
     --db-ps-mode=STRING prepared statements usage mode {auto, disable} [auto]
     --db-debug[=on|off] print database-specific debug information [off]
   

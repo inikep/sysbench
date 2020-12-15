@@ -1,4 +1,4 @@
--- Copyright (C) 2006-2017 Alexey Kopytov <akopytov@gmail.com>
+-- Copyright (C) 2006-2018 Alexey Kopytov <akopytov@gmail.com>
 
 -- This program is free software; you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -54,13 +54,15 @@ sysbench.cmdline.options = {
    non_index_updates =
       {"Number of UPDATE non-index queries per transaction", 1},
    delete_inserts =
-      {"Number of DELETE/INSERT combination per transaction", 1},
+      {"Number of DELETE/INSERT combinations per transaction", 1},
    range_selects =
       {"Enable/disable all range SELECT queries", true},
    auto_inc =
    {"Use AUTO_INCREMENT column as Primary Key (for MySQL), " ..
        "or its alternatives in other DBMS. When disabled, use " ..
        "client-generated IDs", true},
+   create_table_options =
+      {"Extra CREATE TABLE options", ""},
    skip_trx =
       {"Don't start explicit transactions and execute all queries " ..
           "in the AUTOCOMMIT mode", false},
@@ -68,6 +70,9 @@ sysbench.cmdline.options = {
       {"Use a secondary index in place of the PRIMARY KEY", false},
    create_secondary =
       {"Create a secondary index in addition to the PRIMARY KEY", true},
+   reconnect =
+      {"Reconnect after every N events. The default (0) is to not reconnect",
+       0},
    mysql_storage_engine =
       {"Storage engine, if MySQL is used", "innodb"},
    pgsql_variant =
@@ -163,8 +168,7 @@ function create_table(drv, con, table_num)
      id_index_def = "PRIMARY KEY"
    end
 
-   if drv:name() == "mysql" or drv:name() == "attachsql" or
-      drv:name() == "drizzle"
+   if drv:name() == "mysql"
    then
       if sysbench.opt.auto_inc then
          id_def = "INTEGER NOT NULL AUTO_INCREMENT"
@@ -172,7 +176,6 @@ function create_table(drv, con, table_num)
          id_def = "INTEGER NOT NULL"
       end
       engine_def = "/*! ENGINE = " .. sysbench.opt.mysql_storage_engine .. " */"
-      extra_table_options = mysql_table_options or ""
    elseif drv:name() == "pgsql"
    then
       if not sysbench.opt.auto_inc then
@@ -196,12 +199,15 @@ CREATE TABLE sbtest%d(
   pad CHAR(60) DEFAULT '' NOT NULL,
   %s (id)
 ) %s %s]],
-      table_num, id_def, id_index_def, engine_def, extra_table_options)
+      table_num, id_def, id_index_def, engine_def,
+      sysbench.opt.create_table_options)
 
    con:query(query)
 
-   print(string.format("Inserting %d records into 'sbtest%d'",
-                       sysbench.opt.table_size, table_num))
+   if (sysbench.opt.table_size > 0) then
+      print(string.format("Inserting %d records into 'sbtest%d'",
+                          sysbench.opt.table_size, table_num))
+   end
 
    if sysbench.opt.auto_inc then
       query = "INSERT INTO sbtest" .. table_num .. "(k, c, pad) VALUES"
@@ -222,12 +228,13 @@ CREATE TABLE sbtest%d(
 
       if (sysbench.opt.auto_inc) then
          query = string.format("(%d, '%s', '%s')",
-                               sb_rand(1, sysbench.opt.table_size), c_val,
-                               pad_val)
+                               sysbench.rand.default(1, sysbench.opt.table_size),
+                               c_val, pad_val)
       else
          query = string.format("(%d, %d, '%s', '%s')",
-                               i, sb_rand(1, sysbench.opt.table_size), c_val,
-                               pad_val)
+                               i,
+                               sysbench.rand.default(1, sysbench.opt.table_size),
+                               c_val, pad_val)
       end
 
       con:bulk_insert_next(query)
@@ -386,8 +393,8 @@ function thread_init()
    prepare_statements()
 end
 
-function thread_done()
-   -- Close prepared statements
+-- Close prepared statements
+function close_statements()
    for t = 1, sysbench.opt.tables do
       for k, s in pairs(stmt[t]) do
          stmt[t][k]:close()
@@ -399,6 +406,10 @@ function thread_done()
    if (stmt.commit ~= nil) then
       stmt.commit:close()
    end
+end
+
+function thread_done()
+   close_statements()
    con:disconnect()
 end
 
@@ -509,5 +520,29 @@ function execute_delete_inserts()
 
       stmt[tnum].deletes:execute()
       stmt[tnum].inserts:execute()
+   end
+end
+
+-- Re-prepare statements if we have reconnected, which is possible when some of
+-- the listed error codes are in the --mysql-ignore-errors list
+function sysbench.hooks.before_restart_event(errdesc)
+   if errdesc.sql_errno == 2013 or -- CR_SERVER_LOST
+      errdesc.sql_errno == 2055 or -- CR_SERVER_LOST_EXTENDED
+      errdesc.sql_errno == 2006 or -- CR_SERVER_GONE_ERROR
+      errdesc.sql_errno == 2011    -- CR_TCP_CONNECTION
+   then
+      close_statements()
+      prepare_statements()
+   end
+end
+
+function check_reconnect()
+   if sysbench.opt.reconnect > 0 then
+      transactions = (transactions or 0) + 1
+      if transactions % sysbench.opt.reconnect == 0 then
+         close_statements()
+         con:reconnect()
+         prepare_statements()
+      end
    end
 end

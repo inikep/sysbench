@@ -76,8 +76,25 @@ export SBTEST_INCDIR
 export PATH="${sysbench_dir}:${SBTEST_ROOTDIR}/../third_party/cram/scripts:$PATH"
 
 export PYTHONPATH="${SBTEST_ROOTDIR}/../third_party/cram:${PYTHONPATH:-}"
-export LUA_PATH="$SBTEST_SCRIPTDIR/?.lua"
+
+LUA_PATH="$SBTEST_SCRIPTDIR/?;$SBTEST_SCRIPTDIR/?.lua"
+LUA_PATH="$LUA_PATH;$SBTEST_INCDIR/?;$SBTEST_INCDIR/?.lua"
+export LUA_PATH
 
 . $SBTEST_CONFIG
 
-cram --shell=/bin/bash --verbose $tests
+if $(command -v python >/dev/null 2>&1)
+then
+    PYTHON=python
+elif $(command -v python3 >/dev/null 2>&1)
+then
+    PYTHON=python3
+elif $(command -v python2 >/dev/null 2>&1)
+then
+    PYTHON=python2
+else
+    echo "Cannot find python interpreter in PATH"
+    exit 1
+fi
+
+$PYTHON $(command -v cram) --shell=/bin/bash --verbose $tests

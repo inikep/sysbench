@@ -116,6 +116,7 @@ static int pgsql_drv_init(void);
 static int pgsql_drv_describe(drv_caps_t *);
 static int pgsql_drv_connect(db_conn_t *);
 static int pgsql_drv_disconnect(db_conn_t *);
+static int pgsql_drv_reconnect(db_conn_t *);
 static int pgsql_drv_prepare(db_stmt_t *, const char *, size_t);
 static int pgsql_drv_bind_param(db_stmt_t *, db_bind_t *, size_t);
 static int pgsql_drv_bind_result(db_stmt_t *, db_bind_t *, size_t);
@@ -141,6 +142,7 @@ static db_driver_t pgsql_driver =
     .describe = pgsql_drv_describe,
     .connect = pgsql_drv_connect,
     .disconnect = pgsql_drv_disconnect,
+    .reconnect = pgsql_drv_reconnect,
     .prepare = pgsql_drv_prepare,
     .bind_param = pgsql_drv_bind_param,
     .bind_result = pgsql_drv_bind_result,
@@ -271,6 +273,22 @@ int pgsql_drv_disconnect(db_conn_t *sb_conn)
     PQfinish(con);
 
   return 0;
+}
+
+/* Disconnect from database */
+
+int pgsql_drv_reconnect(db_conn_t *sb_conn)
+{
+  if (pgsql_drv_disconnect(sb_conn))
+    return DB_ERROR_FATAL;
+
+  while (pgsql_drv_connect(sb_conn))
+  {
+    if (sb_globals.error)
+      return DB_ERROR_FATAL;
+  }
+
+  return DB_ERROR_IGNORABLE;
 }
 
 
@@ -531,7 +549,8 @@ static db_error_t pgsql_check_status(db_conn_t *con, PGresult *pgres,
     con->sql_errmsg = strdup(PQresultErrorField(pgres, PG_DIAG_MESSAGE_PRIMARY));
 
     if (!strcmp(con->sql_state, "40P01") /* deadlock_detected */ ||
-        !strcmp(con->sql_state, "23505") /* unique violation */)
+        !strcmp(con->sql_state, "23505") /* unique violation */ ||
+        !strcmp(con->sql_state, "40001"))/* serialization_failure */
     {
       PGresult *tmp;
       tmp = PQexec(pgcon, "ROLLBACK");
@@ -720,7 +739,7 @@ int pgsql_drv_fetch_row(db_result_t *rs, db_row_t *row)
   */
   rownum = (intptr_t) row->ptr;
   if (rownum >= (int) rs->nrows)
-    return DB_ERROR_NONE;
+    return DB_ERROR_IGNORABLE;
 
   for (i = 0; i < (int) rs->nfields; i++)
   {

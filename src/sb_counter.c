@@ -25,6 +25,8 @@
 #include "sb_util.h"
 #include "sb_ck_pr.h"
 
+sb_counters_t *sb_counters CK_CC_CACHELINE;
+
 static sb_counters_t last_intermediate_counters;
 static sb_counters_t last_cumulative_counters;
 
@@ -65,6 +67,11 @@ static void sb_counters_checkpoint(sb_counters_t dst, sb_counters_t cp)
   }
 }
 
+/*
+  Return aggregate counter values since the last intermediate report. This is
+  not thread-safe as it updates the global last report state, so it must be
+  called from a single thread.
+*/
 void sb_counters_agg_intermediate(sb_counters_t val)
 {
   memset(val, 0, sizeof(sb_counters_t));
@@ -73,6 +80,11 @@ void sb_counters_agg_intermediate(sb_counters_t val)
   sb_counters_checkpoint(val, last_intermediate_counters);
 }
 
+/*
+  Return aggregate counter values since the last cumulative report. This is
+  not thread-safe as it updates the global last report state, so it must be
+  called from a single thread.
+*/
 void sb_counters_agg_cumulative(sb_counters_t val)
 {
   memset(val, 0, sizeof(sb_counters_t));

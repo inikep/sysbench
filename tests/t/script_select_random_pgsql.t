@@ -9,16 +9,17 @@ select_random_*.lua + PostgreSQL tests
   Creating table 'sbtest1'...
   Inserting 10000 records into 'sbtest1'
   Creating a secondary index on 'sbtest1'...
-                                                   Table "public.sbtest1"
+                              Table "public.sbtest1"
    Column |      Type      |                      Modifiers                       | Storage  | Stats target | Description 
   --------+----------------+------------------------------------------------------+----------+--------------+-------------
    id     | integer        | not null default nextval('sbtest1_id_seq'::regclass) | plain    |              | 
    k      | integer        | not null default 0                                   | plain    |              | 
    c      | character(120) | not null default ''::bpchar                          | extended |              | 
    pad    | character(60)  | not null default ''::bpchar                          | extended |              | 
+  
   Indexes:
-      "sbtest1_pkey" PRIMARY KEY, btree (id)
-      "k_1" btree (k)
+   CREATE INDEX k_1 ON sbtest1 USING btree (k)
+   CREATE UNIQUE INDEX sbtest1_pkey ON sbtest1 USING btree (id)
   
   Did not find any relation named "sbtest2".
   Did not find any relation named "sbtest3".
@@ -49,8 +50,9 @@ select_random_*.lua + PostgreSQL tests
       ignored errors:                      0      (0.00 per sec.)
       reconnects:                          0      (0.00 per sec.)
   
-  General statistics:
-      total time:                          *s (glob)
+  Throughput:
+      events/s (eps): *.* (glob)
+      time elapsed:                        *s (glob)
       total number of events:              100
   
   Latency (ms):
@@ -80,16 +82,17 @@ select_random_*.lua + PostgreSQL tests
   Creating table 'sbtest1'...
   Inserting 10000 records into 'sbtest1'
   Creating a secondary index on 'sbtest1'...
-                                                   Table "public.sbtest1"
+                              Table "public.sbtest1"
    Column |      Type      |                      Modifiers                       | Storage  | Stats target | Description 
   --------+----------------+------------------------------------------------------+----------+--------------+-------------
    id     | integer        | not null default nextval('sbtest1_id_seq'::regclass) | plain    |              | 
    k      | integer        | not null default 0                                   | plain    |              | 
    c      | character(120) | not null default ''::bpchar                          | extended |              | 
    pad    | character(60)  | not null default ''::bpchar                          | extended |              | 
+  
   Indexes:
-      "sbtest1_pkey" PRIMARY KEY, btree (id)
-      "k_1" btree (k)
+   CREATE INDEX k_1 ON sbtest1 USING btree (k)
+   CREATE UNIQUE INDEX sbtest1_pkey ON sbtest1 USING btree (id)
   
   Did not find any relation named "sbtest2".
   Did not find any relation named "sbtest3".
@@ -120,8 +123,9 @@ select_random_*.lua + PostgreSQL tests
       ignored errors:                      0      (0.00 per sec.)
       reconnects:                          0      (0.00 per sec.)
   
-  General statistics:
-      total time:                          *s (glob)
+  Throughput:
+      events/s (eps): *.* (glob)
+      time elapsed:                        *s (glob)
       total number of events:              100
   
   Latency (ms):

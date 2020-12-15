@@ -4,6 +4,21 @@ AC_PREREQ(2.63)
 AC_INIT([sysbench],[1.1.0],[https://github.com/akopytov/sysbench/issues],
         [sysbench], [https://github.com/akopytov/sysbench])
 AC_CONFIG_AUX_DIR([config])
+
+# Define m4_ifblank and m4_ifnblank macros from introduced in
+#  autotools 2.64 m4sugar.m4 if using an earlier autotools.
+m4_ifdef([m4_ifblank], [], [
+m4_define([m4_ifblank],
+[m4_if(m4_translit([[$1]],  [ ][	][
+]), [], [$2], [$3])])
+])
+
+m4_ifdef([m4_ifnblank], [], [
+m4_define([m4_ifnblank],
+[m4_if(m4_translit([[$1]],  [ ][	][
+]), [], [$3], [$2])])
+])
+
 # Setting CFLAGS here prevents AC_CANONICAL_TARGET from injecting them
 SAVE_CFLAGS=${CFLAGS}
 SAVE_CXXFLAGS=${CXXFLAGS}
@@ -43,8 +58,6 @@ AS_CASE([$CFLAGS],
 
 m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 
-#LT_INIT([dlopen])
-#LT_LIB_DLLOAD
 AC_PROG_LIBTOOL
 
 AC_CHECK_PROG(sb_have_pkg_config, pkg-config, yes, no)
@@ -52,22 +65,11 @@ if test x"$sb_have_pkg_config" = xno; then
   AC_MSG_ERROR([the pkg-config package is required to build sysbench])
 fi
 
-AC_CHECK_PROG(sb_have_xxd, xxd, yes, no)
-if test x"$sb_have_xxd" = xno; then
-   AC_MSG_ERROR("xxd is required to build sysbench (usually comes with the vim package)")
-fi
-
 AX_COMPILER_VENDOR
 
 # Checks for user arguments
 
 AC_LIB_PREFIX()
-# Additional linker flags
-AC_ARG_WITH([extra-ldflags],
-              AS_HELP_STRING([--with-extra-ldflags],[additional linker flags, e.g. -all-static]),
-              EXTRA_LDFLAGS=$withval
-)
-AC_SUBST(EXTRA_LDFLAGS)
 
 CPPFLAGS="-D_GNU_SOURCE ${CPPFLAGS}"
 
@@ -82,7 +84,7 @@ if test "$GCC" = "yes"
 then
   CFLAGS="-ggdb3 ${CFLAGS}"
   DEBUG_CFLAGS="-O0"
-  OPTIMIZE_CFLAGS="-O2"
+  OPTIMIZE_CFLAGS="-O3 -funroll-loops"
   GCOV_CFLAGS="-O0 --coverage"
   GCOV_LDFLAGS="-coverage"
   ASAN_CFLAGS="-fsanitize=address"
@@ -124,40 +126,6 @@ AS_IF([test "x$with_mysql" != "xno"],
    [mysql_support=yes],
    [mysql_support=no])
 AC_MSG_RESULT([$mysql_support])
-
-# Check if we should compile with Drizzle support
-AC_ARG_WITH([drizzle],
-            AS_HELP_STRING([--with-drizzle],
-                           [compile with Drizzle support (default is disabled)]),
-            [], [with_drizzle=no])
-AC_MSG_CHECKING([whether to compile with Drizzle support])
-AS_IF([test "x$with_drizzle" != "xno"],
-   [drizzle_support=yes],
-   [drizzle_support=no])
-AC_MSG_RESULT([$drizzle_support])
-
-# Check if we should compile with libattachsql support
-AC_ARG_WITH([attachsql],
-            AS_HELP_STRING([--with-attachsql],
-                           [compile with libattachsql support (default is disabled)]),
-            [], [with_attachsql=no])
-AC_MSG_CHECKING([whether to compile with libattachsql support])
-AS_IF([test "x$with_attachsql" != "xno"],
-   [attachsql_support=yes],
-   [attachsql_support=no])
-AC_MSG_RESULT([$attachsql_support])
-
-
-# Check if we should compile with Oracle support
-AC_ARG_WITH([oracle],
-            AS_HELP_STRING([--with-oracle],
-                           [compile with Oracle support (default is disabled)]),
-            [], [with_oracle=no])
-AC_MSG_CHECKING([whether to compile with Oracle support])
-AS_IF([test "x$with_oracle" != "xno"],
-   [oracle_support=yes],
-   [oracle_support=no])
-AC_MSG_RESULT([$oracle_support])
 
 # Check if we should compile with PostgreSQL support
 AC_ARG_WITH([pgsql],
@@ -215,53 +183,7 @@ ACX_PTHREAD
 
 AC_CHECK_LIB(m, sqrt)
 
-AS_IF([test "x$with_mysql" != xno], [
-    AC_CHECK_MYSQLR([$with_mysql])
-    AC_DEFINE([USE_MYSQL], 1,
-              [Define to 1 if you want to compile with MySQL support])
-    USE_MYSQL=1
-    AC_SUBST([MYSQL_LIBS])
-    AC_SUBST([MYSQL_CFLAGS])
-])
-AM_CONDITIONAL([USE_MYSQL], test x$with_mysql != xno)
-AC_SUBST([USE_MYSQL])
-
-AS_IF([test "x$with_drizzle" != xno], [
-  AC_LIB_HAVE_LINKFLAGS(drizzle,,
-    [#include <libdrizzle/drizzle.h>],
-    [
-     int x= DRIZZLE_RETURN_ERROR_CODE;
-     const char *version= drizzle_version();
-    ])
-    AS_IF([test "x$ac_cv_libdrizzle" = xyes], [
-      AC_DEFINE([USE_DRIZZLE],1,
-                [Define to 1 if you want to compile with Drizzle support])
-    ])
-])
-AM_CONDITIONAL(USE_DRIZZLE, test x$ac_cv_libdrizzle = xyes)
-
-AS_IF([test "x$with_attachsql" != xno], [
-  AC_LIB_HAVE_LINKFLAGS(attachsql,,
-    [#include <libattachsql-1.0/attachsql.h>],
-    [
-     const char *version= attachsql_get_library_version();
-    ])
-    AS_IF([test "x$ac_cv_libattachsql" = xyes], [
-      AC_DEFINE(USE_ATTACHSQL,1,
-                [Define to 1 if you want to compile with libattachsql support])
-    ])
-])
-AM_CONDITIONAL(USE_ATTACHSQL, test x$ac_cv_libattachsql = xyes)
-
-
-AS_IF([test x$with_oracle != xno], [
-    AC_DEFINE(USE_ORACLE,1,[Define to 1 if you want to compile with Oracle support])
-    ORA_LIBS="-L${sb_with_oracle}/lib -lclntsh"
-    ORA_CFLAGS="-I${with_oracle}/include -I${with_oracle}/rdbms/demo -I${with_oracle}/rdbms/public"
-    AC_SUBST([ORA_LIBS])
-    AC_SUBST([ORA_CFLAGS])
-])
-AM_CONDITIONAL(USE_ORACLE, test x$with_oracle != xno)
+SB_CHECK_MYSQL
 
 AS_IF([test x$with_pgsql != xno], [
     AC_CHECK_PGSQL([$with_pgsql])
@@ -276,11 +198,6 @@ AC_SUBST([USE_PGSQL])
 # Check for libaio
 AC_CHECK_AIO
 AM_CONDITIONAL(USE_AIO, test x$enable_aio = xyes)
-
-# Check for advanced memory allocation libraries 
-AC_CHECK_LIB([umem], [malloc], [EXTRA_LDFLAGS="$EXTRA_LDFLAGS -lumem"], 
- AC_CHECK_LIB([mtmalloc], [malloc], [EXTRA_LDFLAGS="$EXTRA_LDFLAGS -lmtmalloc"]) 
-) 
 
 # Checks for header files.
 AC_HEADER_STDC
@@ -352,6 +269,7 @@ isatty \
 memalign \
 memset \
 posix_memalign \
+pthread_cancel \
 pthread_yield \
 setvbuf \
 sqrt \
@@ -373,35 +291,11 @@ AC_ARG_WITH([debug],
     [with_debug=$withval],
     [with_debug=no])
 
-AC_ARG_ENABLE([profiling],
-    [AS_HELP_STRING([--enable-profiling],
-       [Toggle profiling @<:@default=off@:>@])],
-    [ac_profiling="$enableval"],
-    [ac_profiling="no"])
- 
 AC_ARG_ENABLE([coverage],
     [AS_HELP_STRING([--enable-coverage],
-       [Toggle coverage @<:@default=off@:>@])],
+       [Toggle coverage @<:@default=no@:>@])],
     [ac_coverage="$enableval"],
     [ac_coverage="no"])
-
-AC_ARG_ENABLE([pedantic-warnings],
-    [AS_HELP_STRING([--disable-pedantic-warnings],
-       [Toggle pedanticness @<:@default=on@:>@])],
-    [ac_warn_pedantic="$enableval"],
-    [ac_warn_pedantic="yes"])
-
-AC_ARG_ENABLE([iso-pedantic-warnings],
-    [AS_HELP_STRING([--enable-iso-pedantic-warnings],
-       [Toggle iso pedanticness @<:@default=off@:>@])],
-    [ac_warn_iso_pedantic="$enableval"],
-    [ac_warn_iso_pedantic="no"])
-
-AC_ARG_ENABLE([unreachable],
-  [AS_HELP_STRING([--enable-unreachable],
-    [Enable warnings about unreachable code @<:@default=no@:>@])],
-  [ac_warn_unreachable="$enableval"],
-  [ac_warn_unreachable="no"])
 
 AC_ARG_ENABLE([asan],
   [AS_HELP_STRING([--enable-asan],
@@ -420,12 +314,6 @@ AC_ARG_ENABLE([fail],
        [Turn warnings into failures @<:@default=no@:>@])],
     [ac_warn_fail="$enableval"],
     [ac_warn_fail="no"])
-
-AC_ARG_ENABLE([go-crazy],
-    [AS_HELP_STRING([--disable-go-crazy],
-       [Enables extra little warnings that might be too much @<:@default=on@:>@])],
-    [ac_warn_go_crazy="$enableval"],
-    [ac_warn_go_crazy="no"])
 
 if test "$with_debug" = "yes"
 then
@@ -467,55 +355,19 @@ then
   then
     W_FAIL="-Werror"
   fi
-  BASE_WARNINGS="-W -Wall -Wextra -Wpointer-arith -Wbad-function-cast \
-  -Wstrict-prototypes -Wnested-externs -Wno-inline -Wno-format-zero-length \
-  -funroll-loops ${W_FAIL}"
 
-  if test "$ac_profiling" = "yes"
-  then
-    GPROF_PROFILING="-pg"
-  else
-    GPROF_PROFILING=" "
-  fi
-
-  if test "$ac_coverage" = "yes"
-  then
-    GPROF_COVERAGE="--coverage"
-  else
-    GPROF_COVERAGE=" "
-  fi
-
-  if test "$ac_warn_pedantic" = "yes"
-  then
-    W_PEDANTIC="-Wundef -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls -Wcast-align"
-  fi
-
-  if test "$ac_warn_iso_pedantic" = "yes"
-  then
-    W_PEDANTIC="-pedantic ${W_PEDANTIC}"
-  fi
-
-  if test "$ac_warn_unreachable" = "yes"
-  then
-    W_UNREACHABLE="-Wunreachable-code"
-  fi
-
-  if test "$ac_warn_go_crazy" = "yes"
-  then
-    W_CRAZY="-Wshadow -Wconversion"
-  fi
-
-  CC_WARNINGS="${BASE_WARNINGS} ${W_PEDANTIC} ${W_UNREACHABLE} ${W_CRAZY}"
-
-  NO_REDUNDANT_DECLS="-Wno-redundant-decls"
-  CPPFLAGS="${CPPFLAGS}"
+  CC_WARNINGS="-Wall -Wextra -Wpointer-arith -Wbad-function-cast \
+-Wstrict-prototypes -Wnested-externs -Wno-format-zero-length \
+-Wundef -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations \
+-Wredundant-decls -Wcast-align -Wvla ${W_FAIL}"
 fi
+
 if test "$ax_cv_c_compiler_vendor" = "sun"
 then
   CC_WARNINGS="-v -errtags=yes -errwarn=%all -erroff=E_INTEGER_OVERFLOW_DETECTED -erroff=E_STATEMENT_NOT_REACHED"
 fi
 
-AM_CFLAGS="${CC_WARNINGS} ${GPROF_PROFILING} ${GPROF_COVERAGE} ${AM_CFLAGS} ${PTHREAD_CFLAGS}"
+AM_CFLAGS="${CC_WARNINGS} ${AM_CFLAGS} ${PTHREAD_CFLAGS}"
 
 AM_CPPFLAGS="${AM_CPPFLAGS} -I\$(top_srcdir)/src ${LUAJIT_CFLAGS} ${CK_CFLAGS}"
 
@@ -545,10 +397,7 @@ third_party/concurrency_kit/Makefile
 src/Makefile
 src/drivers/Makefile
 src/drivers/mysql/Makefile
-src/drivers/drizzle/Makefile
-src/drivers/oracle/Makefile
 src/drivers/pgsql/Makefile
-src/drivers/attachsql/Makefile
 src/tests/Makefile
 src/tests/cpu/Makefile
 src/tests/fileio/Makefile
@@ -570,7 +419,6 @@ AC_MSG_RESULT([CFLAGS             : ${CFLAGS} ${AM_CFLAGS}])
 AC_MSG_RESULT([CPPFLAGS           : ${CPPFLAGS} ${AM_CPPFLAGS}])
 AC_MSG_RESULT([LDFLAGS            : ${LDFLAGS} ${AM_LDFLAGS}])
 AC_MSG_RESULT([LIBS               : ${LIBS}])
-AC_MSG_RESULT([EXTRA_LDFLAGS      : ${EXTRA_LDFLAGS}])
 AC_MSG_RESULT([])
 AC_MSG_RESULT([prefix             : $(eval echo ${prefix})])
 AC_MSG_RESULT([bindir             : $(eval echo ${bindir})])
@@ -579,9 +427,6 @@ AC_MSG_RESULT([mandir             : $(eval echo ${mandir})])
 AC_MSG_RESULT([datadir            : $(eval echo ${datadir})])
 AC_MSG_RESULT([])
 AC_MSG_RESULT([MySQL support      : ${mysql_support}])
-AC_MSG_RESULT([Drizzle support    : ${drizzle_support}])
-AC_MSG_RESULT([AttachSQL support  : ${attachsql_support}])
-AC_MSG_RESULT([Oracle support     : ${oracle_support}])
 AC_MSG_RESULT([PostgreSQL support : ${pgsql_support}])
 AC_MSG_RESULT([])
 AC_MSG_RESULT([LuaJIT             : ${sb_use_luajit}])
