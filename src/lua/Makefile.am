@@ -23,6 +23,7 @@ dist_pkgdata_SCRIPTS = bulk_insert.lua \
              oltp_read_write.lua \
              oltp_point_select.lua \
              oltp_inlist_select.lua \
+             oltp_inlist_update.lua \
              oltp_update_index.lua \
              oltp_update_non_index.lua \
              oltp_write_only.lua\
