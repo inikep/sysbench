@@ -21,15 +21,19 @@ dist_pkgdata_SCRIPTS = bulk_insert.lua \
              oltp_delete.lua \
              oltp_insert.lua \
              oltp_read_only.lua \
+             oltp_read_only_count.lua \
              oltp_read_write.lua \
              oltp_point_select.lua \
              oltp_inlist_select.lua \
              oltp_inlist_update.lua \
              oltp_update_index.lua \
+             oltp_update_index_rl.lua \
              oltp_update_non_index.lua \
+             oltp_update_rate.lua \
              oltp_write_only.lua \
              oltp_points_covered.lua \
              oltp_range_covered.lua \
+             oltp_scan.lua \
              select_random_points.lua \
              select_random_ranges.lua
 
