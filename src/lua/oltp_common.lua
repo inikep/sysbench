@@ -31,6 +31,8 @@ end
 
 -- Command line options
 sysbench.cmdline.options = {
+   rocksdb_bulk_load_sync_size =
+      {"Number of rows to sync bulk load", 0},
    table_size =
       {"Number of rows per table", 10000},
    range_size =
@@ -235,6 +237,16 @@ CREATE TABLE sbtest%d(
       end
 
       con:bulk_insert_next(query)
+
+      if (sysbench.opt.rocksdb_bulk_load_sync_size > 0) and (i % sysbench.opt.rocksdb_bulk_load_sync_size == 0) then
+         if table_num == 1 then
+            print(string.format("Inserted %d/%d rows...", i, sysbench.opt.table_size))
+         end
+         query = "SET session rocksdb_bulk_load=0"
+         con:query(query)
+         query = "SET session rocksdb_bulk_load=1"
+         con:query(query)
+      end
    end
 
    con:bulk_insert_done()
