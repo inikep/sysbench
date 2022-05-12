@@ -238,6 +238,10 @@ CREATE TABLE sbtest%d(
 
       con:bulk_insert_next(query)
 
+      if (table_num == 1) and (i % (sysbench.opt.table_size / 10) == 0) then
+         print(string.format("Inserted %d/%d rows...", i, sysbench.opt.table_size))
+      end
+
       if (sysbench.opt.rocksdb_bulk_load_sync_size > 0) and (i % sysbench.opt.rocksdb_bulk_load_sync_size == 0) then
          if table_num == 1 then
             print(string.format("Inserted %d/%d rows...", i, sysbench.opt.table_size))
