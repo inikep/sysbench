@@ -808,8 +808,17 @@ static void *worker_thread(void *arg)
 
   sb_tls_thread_id = thread_id = ctxt->id;
 
-  /* Initialize thread-local RNG state */
-  sb_rand_thread_init();
+  if (sb_rand_seed)
+  {
+    unsigned int seed = sb_rand_seed + thread_id;
+    sb_rand_thread_init_seed(seed);
+  }
+  else
+  {
+    /* Initialize thread-local RNG state */
+    sb_rand_thread_init();
+  }
+
 
   log_text(LOG_DEBUG, "Worker thread (#%d) started", thread_id);
 

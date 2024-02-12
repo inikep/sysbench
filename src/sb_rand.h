@@ -60,6 +60,7 @@ void sb_rand_print_help(void);
 int sb_rand_init(void);
 void sb_rand_done(void);
 void sb_rand_thread_init(void);
+void sb_rand_thread_init_seed(unsigned int seed);
 
 /* Generator functions */
 uint32_t sb_rand_default(uint32_t, uint32_t);

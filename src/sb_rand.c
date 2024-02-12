@@ -61,6 +61,8 @@ TLS sb_rng_state_t sb_rng_state CK_CC_CACHELINE;
 /* Exported variables */
 int sb_rand_seed; /* optional seed set on the command line */
 
+#define PRNG_BUFSZ 32
+
 /* Random numbers command line options */
 
 static sb_arg_t rand_args[] =
@@ -220,6 +222,27 @@ void sb_rand_thread_init(void)
     (((uint64_t) random()) & UINT32_MAX);
   sb_rng_state[1] = (((uint64_t) random()) << 32) |
     (((uint64_t) random()) & UINT32_MAX);
+}
+
+void sb_rand_thread_init_seed(unsigned int seed)
+{
+  int32_t r1, r2, r3, r4;
+  char rand_statebuf[PRNG_BUFSZ] = {};
+  struct random_data rand_buf = {};
+
+  initstate_r(seed, rand_statebuf, PRNG_BUFSZ, &rand_buf);
+  srandom_r(seed, &rand_buf);
+  random_r(&rand_buf, &r1);
+  random_r(&rand_buf, &r2);
+  random_r(&rand_buf, &r3);
+  random_r(&rand_buf, &r4);
+//  printf("sb_rand_thread_init a=%u b=%u c=%u d=%u\n", r1, r2, r3, r4);
+
+  /* We use libc PRNG to seed xoroshiro128+ */
+  sb_rng_state[0] = (((uint64_t) r1) << 32) |
+    (((uint64_t) r2) & UINT32_MAX);
+  sb_rng_state[1] = (((uint64_t) r3) << 32) |
+    (((uint64_t) r4) & UINT32_MAX);
 }
 
 /*
