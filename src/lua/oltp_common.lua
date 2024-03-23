@@ -77,6 +77,9 @@ sysbench.cmdline.options = {
        0},
    mysql_storage_engine =
       {"Storage engine, if MySQL is used", "innodb"},
+   pgsql_conn_id =
+     { "Write the Postgres backend process ID for this connection  " ..
+          "into a file named o.pgid.$threadID", false },
    pgsql_variant =
       {"Use this PostgreSQL variant when running with the " ..
           "PostgreSQL driver. The only currently supported " ..
@@ -164,12 +167,6 @@ function create_table(drv, con, table_num)
    local extra_table_options = ""
    local query
 
-   if sysbench.opt.secondary then
-     id_index_def = "KEY xid"
-   else
-     id_index_def = "PRIMARY KEY"
-   end
-
    if drv:name() == "mysql"
    then
       if sysbench.opt.auto_inc then
@@ -178,6 +175,28 @@ function create_table(drv, con, table_num)
          id_def = "INTEGER NOT NULL"
       end
       engine_def = "/*! ENGINE = " .. sysbench.opt.mysql_storage_engine .. " */"
+
+      if sysbench.opt.secondary then
+        id_index_def = "KEY xid (id)"
+      else
+        id_index_def = "PRIMARY KEY (id)"
+      end
+
+      print(string.format("Creating table 'sbtest%d'...", table_num))
+
+      query = string.format([[
+CREATE TABLE sbtest%d(
+  id %s,
+  k INTEGER DEFAULT '0' NOT NULL,
+  c CHAR(120) DEFAULT '' NOT NULL,
+  pad CHAR(60) DEFAULT '' NOT NULL,
+  %s
+) %s %s]],
+      table_num, id_def, id_index_def, engine_def,
+      sysbench.opt.create_table_options)
+
+     con:query(query)
+
    elseif drv:name() == "pgsql"
    then
       if not sysbench.opt.auto_inc then
@@ -187,24 +206,38 @@ function create_table(drv, con, table_num)
       else
         id_def = "SERIAL"
       end
-   else
-      error("Unsupported database driver:" .. drv:name())
-   end
 
-   print(string.format("Creating table 'sbtest%d'...", table_num))
+      if sysbench.opt.secondary then
+        id_index_def = ""
+      else
+        id_index_def = "PRIMARY KEY (id)"
+      end
 
-   query = string.format([[
+      print(string.format("Creating table 'sbtest%d'...", table_num))
+
+      query = string.format([[
 CREATE TABLE sbtest%d(
   id %s,
   k INTEGER DEFAULT '0' NOT NULL,
   c CHAR(120) DEFAULT '' NOT NULL,
   pad CHAR(60) DEFAULT '' NOT NULL,
-  %s (id)
+  %s
 ) %s %s]],
       table_num, id_def, id_index_def, engine_def,
       sysbench.opt.create_table_options)
 
-   con:query(query)
+      con:query(query)
+
+      if sysbench.opt.secondary then
+        print(string.format("Creating index for 'sbtest%d'...", table_num))
+        query = string.format([[CREATE INDEX xid%d on sbtest%d(id)]],
+          table_num, table_num)
+        con:query(query)
+      end
+
+   else
+      error("Unsupported database driver:" .. drv:name())
+   end
 
    if (sysbench.opt.table_size > 0) then
       print(string.format("Inserting %d records into 'sbtest%d'",
@@ -390,6 +423,16 @@ function prepare_delete_inserts()
    prepare_for_each_table("inserts")
 end
 
+function log_id_if_pgsql()
+   if sysbench.opt.pgsql_conn_id then
+      thread_id = sysbench.tid % sysbench.opt.threads
+      pgid = con:query_row("select pg_backend_pid()")
+      f = io.open("sb.pgid." .. thread_id, "w")
+      f:write("PG_backend: " .. pgid)
+      f:close()
+   end
+end
+
 function thread_init()
    drv = sysbench.sql.driver()
    con = drv:connect()
@@ -407,6 +450,8 @@ function thread_init()
 
    -- This function is a 'callback' defined by individual benchmark scripts
    prepare_statements()
+
+   log_id_if_pgsql()
 end
 
 -- Close prepared statements
