@@ -37,6 +37,8 @@ sysbench.cmdline.options = {
       {"Number of rows per table", 10000},
    range_size =
       {"Range size for range SELECT queries", 100},
+   limit_size =
+      {"Limit size for queries with LIMIT", 10},
    tables =
       {"Number of tables", 1},
    point_selects =
@@ -551,6 +553,17 @@ function execute_index_updates()
       param[tnum].index_updates[1]:set(get_id())
 
       stmt[tnum].index_updates:execute()
+   end
+end
+
+function execute_index_updates_rl()
+   local tnum = get_table_num()
+
+   for i = 1, sysbench.opt.index_updates do
+      param[tnum].index_updates_rl[1]:set(get_id())
+      param[tnum].index_updates_rl[2]:set(sysbench.opt.limit_size)
+
+      stmt[tnum].index_updates_rl:execute()
    end
 end
 

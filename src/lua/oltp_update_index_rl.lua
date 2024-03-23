@@ -22,13 +22,10 @@
 require("oltp_common")
 
 function prepare_statements()
-   prepare_index_updates()
+   prepare_index_updates_rl()
 end
 
 function event()
-   local tnum = sysbench.rand.uniform(1, sysbench.opt.tables)
-
-   param[tnum].index_updates[1]:set(get_id())
-
-   stmt[tnum].index_updates:execute()
+   execute_index_updates_rl(con)
+   check_reconnect()
 end
