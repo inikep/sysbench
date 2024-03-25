@@ -245,3 +245,4 @@ function sysbench.report_cumulative_default(stat)
 
    print(string.format("         sum: %39.2f\n", stat.latency_sum * 1000))
 end
+
