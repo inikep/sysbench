@@ -59,6 +59,8 @@ sysbench.cmdline.options = {
       {"Number of UPDATE non-index queries per transaction", 1},
    delete_inserts =
       {"Number of DELETE/INSERT combinations per transaction", 1},
+   replaces =
+      {"Number of REPLACE queries per transaction", 1},
    range_selects =
       {"Enable/disable all range SELECT queries", true},
    auto_inc =
@@ -342,6 +344,9 @@ local stmt_defs = {
    inserts = {
       "INSERT INTO sbtest%u (id, k, c, pad) VALUES (?, ?, ?, ?)",
       t.INT, t.INT, {t.CHAR, 120}, {t.CHAR, 60}},
+   replaces = {
+      "REPLACE INTO sbtest%u (id, k, c, pad) VALUES (?, ?, ?, ?)",
+      t.INT, t.INT, {t.CHAR, 120}, {t.CHAR, 60}},
 }
 
 function prepare_begin()
@@ -423,6 +428,10 @@ end
 function prepare_delete_inserts()
    prepare_for_each_table("deletes")
    prepare_for_each_table("inserts")
+end
+
+function prepare_replaces()
+   prepare_for_each_table("replaces")
 end
 
 function log_id_if_pgsql()
@@ -594,6 +603,22 @@ function execute_delete_inserts()
 
       stmt[tnum].deletes:execute()
       stmt[tnum].inserts:execute()
+   end
+end
+
+function execute_replaces()
+   local tnum = get_table_num()
+
+   for i = 1, sysbench.opt.replaces do
+      local id = get_id()
+      local k = get_id()
+
+      param[tnum].replaces[1]:set(id)
+      param[tnum].replaces[2]:set(k)
+      param[tnum].replaces[3]:set_rand_str(c_value_template)
+      param[tnum].replaces[4]:set_rand_str(pad_value_template)
+
+      stmt[tnum].replaces:execute()
    end
 end
 
